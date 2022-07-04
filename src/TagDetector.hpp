@@ -5,13 +5,13 @@
 #include <opencv2/aruco.hpp>
 #include <opencv2/aruco/dictionary.hpp>
 #include <opencv2/opencv.hpp>
-#include <opencv2/core/eigen.hpp> 
+#include <opencv2/core/eigen.hpp>
 
 #include <vector>
 #include <iostream>
 #include <fstream>
 
-bool LoadBoard(std::string file, int tag_size, std::vector<std::vector<cv::Point3f>>& tag_coord)
+bool LoadBoard(std::string file, int tag_size, std::vector<std::vector<cv::Point3f>> &tag_coord)
 {
     std::ifstream fin(file);
     if (!fin)
@@ -34,22 +34,24 @@ bool LoadBoard(std::string file, int tag_size, std::vector<std::vector<cv::Point
     return true;
 }
 
-int TagDetector(cv::Mat& image, std::vector<std::vector<cv::Point3f>>& tag_coord, 
-                cv::Mat& inrinsic, cv::Mat distort, Eigen::Matrix4f& pose)
+int TagDetector(cv::Mat &image, std::vector<std::vector<cv::Point3f>> &tag_coord, cv::Mat &inrinsic,
+                cv::Mat distort, Eigen::Affine3f &pose)
 {
     std::vector<cv::Point3f> t_tag_coord;
     std::vector<cv::Point2f> t_cam_coord;
 
-    cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
+    cv::Ptr<cv::aruco::Dictionary> dictionary =
+        cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
     cv::Ptr<cv::aruco::DetectorParameters> parameters = cv::aruco::DetectorParameters::create();
-    std::vector<std::vector<cv::Point2f>> markerCorners, rejectedCandidates;
-    std::vector<int> markerIds;
+    std::vector<std::vector<cv::Point2f>>  markerCorners, rejectedCandidates;
+    std::vector<int>                       markerIds;
 
-    cv::aruco::detectMarkers(image, dictionary, markerCorners, markerIds, parameters, rejectedCandidates);
+    cv::aruco::detectMarkers(image, dictionary, markerCorners, markerIds, parameters,
+                             rejectedCandidates);
 
-    if(markerIds.size() > 0)
+    if (markerIds.size() > 0)
     {
-        for(uint8_t tag_num = 0; tag_num < markerIds.size(); tag_num++)
+        for (uint8_t tag_num = 0; tag_num < markerIds.size(); tag_num++)
         {
             int id = markerIds[tag_num];
             for (int corner_num = 0; corner_num < 4; corner_num++)
@@ -64,20 +66,22 @@ int TagDetector(cv::Mat& image, std::vector<std::vector<cv::Point3f>>& tag_coord
 
         cv::Mat rvec, tvec;
         cv::solvePnPRansac(t_tag_coord, t_cam_coord, inrinsic, distort, rvec, tvec);
-        
+
         cv::Mat R, t;
         cv::Rodrigues(rvec, R);
         t = tvec.clone();
 
         Eigen::Matrix3f R_eigen;
         Eigen::Vector3f t_eigen;
-        cv::cv2eigen(R,R_eigen);
-        cv::cv2eigen(t,t_eigen);
+        cv::cv2eigen(R, R_eigen);
+        cv::cv2eigen(t, t_eigen);
 
-        pose.block<3,3>(0,0) = R_eigen;
-        pose.block<3,1>(0,3) = t_eigen;
-        pose.block<1,3>(3,0) = Eigen::RowVector3f::Zero();
-        pose(3,3) = 1;
+        pose.rotate(R_eigen);
+        pose.translation() = t_eigen;
+        // pose.block<3,3>(0,0) = R_eigen;
+        // pose.block<3,1>(0,3) = t_eigen;
+        // pose.block<1,3>(3,0) = Eigen::RowVector3f::Zero();
+        // pose(3,3) = 1;
     }
 
     return markerIds.size();
