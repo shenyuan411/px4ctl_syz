@@ -22,7 +22,7 @@ bool LoadBoard(std::string file, int tag_size, std::vector<std::vector<cv::Point
     for (int tag_num = 0; tag_num < tag_size; tag_num++)
     {
         std::vector<cv::Point3f> single_tag_coord;
-        for (int j = 0; j < 4; j++)
+        for (int corner_num = 0; corner_num < 4; corner_num++)
         {
             cv::Point3f p;
             fin >> p.x >> p.y >> p.z;
