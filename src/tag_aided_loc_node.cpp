@@ -1,8 +1,17 @@
 #include <ros/ros.h>
 #include <nav_msgs/Odometry.h>
-#include <thread>
+#include <cv_bridge/cv_bridge.h>
 
 #include "TagDetector.hpp"
+#include "geometry_msgs/PoseStamped.h"
+#include "sensor_msgs/Image.h"
+
+#define BACKWARD_HAS_DW 1
+#include "backward.hpp"
+namespace backward
+{
+backward::SignalHandling sh;
+}
 
 // Finite state machine
 // VIO-->TAG-->TAG2VIO--
@@ -18,17 +27,17 @@ enum FUSE_STATE
 
 FUSE_STATE gFuseState;
 
-ros::Publisher odom_pub;
+ros::Publisher odom_pub, tag_pose_pub;
 
+Eigen::Affine3f T_W_B0, T_W_Bt, T_W_Bk;
+
+Eigen::Affine3f T_C0_A, T_Ck_A;
+
+Eigen::Affine3f T_W_BA0, T_W_BAk, T_W_BAt;
+
+cv::Mat         intrinsic;
+cv::Mat         distort;
 Eigen::Affine3f T_B_C;
-
-Eigen::Affine3f T_W_V0, T_W_Vt;
-double          vio_time;
-
-Eigen::Affine3f T_C0_A, T_Ct_A;
-double          tag_time;
-
-Eigen::Affine3f T_W_VA0, T_W_VAt;
 
 void vio_callback(const nav_msgs::OdometryConstPtr &vio_msg)
 {
@@ -36,72 +45,104 @@ void vio_callback(const nav_msgs::OdometryConstPtr &vio_msg)
                          vio_msg->pose.pose.position.z);
     Eigen::Quaternionf q(vio_msg->pose.pose.orientation.w, vio_msg->pose.pose.orientation.x,
                          vio_msg->pose.pose.orientation.y, vio_msg->pose.pose.orientation.z);
-    T_W_Vt.rotate(q);
-    T_W_Vt.translation() = p;
+
+    T_W_Bt.matrix().block<3, 3>(0, 0) = q.toRotationMatrix();
+    T_W_Bt.matrix().block<3, 1>(0, 3) = p;
 
     if (gFuseState == VIO)
     {
-        vio_time = vio_msg->header.stamp.toSec();
+        T_W_BAt = T_W_Bt;
         odom_pub.publish(vio_msg);
     }
     else if (gFuseState == TAG)
     {
-        Eigen::Affine3f T_V0_VAt      = T_B_C * T_C0_A * T_Ct_A.inverse() * T_B_C.inverse();
-        T_W_VAt                       = T_W_V0 * T_V0_VAt;
+        Eigen::Affine3f T_B0_BAk      = T_B_C * T_C0_A * T_Ck_A.inverse() * T_B_C.inverse();
+        T_W_BAk                       = T_W_B0 * T_B0_BAk;
+        Eigen::Affine3f T_BAk_BAt     = T_W_Bk.inverse() * T_W_Bt;
+        T_W_BAt                       = T_W_BAk * T_BAk_BAt;
         nav_msgs::Odometry odom_msg   = *vio_msg;
-        odom_msg.pose.pose.position.x = T_W_VAt.translation().x();
-        odom_msg.pose.pose.position.y = T_W_VAt.translation().y();
-        odom_msg.pose.pose.position.z = T_W_VAt.translation().z();
+        odom_msg.pose.pose.position.x = T_W_BAt.translation().x();
+        odom_msg.pose.pose.position.y = T_W_BAt.translation().y();
+        odom_msg.pose.pose.position.z = T_W_BAt.translation().z();
         // 不用位姿补偿，可能频率不够
         odom_pub.publish(odom_msg);
     }
     else if (gFuseState == TAG2VIO)
     {
-        T_W_Vt                        = T_W_VA0 * T_W_V0.inverse() * T_W_Vt;
+        Eigen::Affine3f    T_W_Bt2    = T_W_BA0 * T_W_B0.inverse() * T_W_Bt;
         nav_msgs::Odometry odom_msg   = *vio_msg;
-        odom_msg.pose.pose.position.x = T_W_Vt.translation().x();
-        odom_msg.pose.pose.position.y = T_W_Vt.translation().y();
-        odom_msg.pose.pose.position.z = T_W_Vt.translation().z();
+        odom_msg.pose.pose.position.x = T_W_Bt2.translation().x();
+        odom_msg.pose.pose.position.y = T_W_Bt2.translation().y();
+        odom_msg.pose.pose.position.z = T_W_Bt2.translation().z();
         // 不用位姿补偿，可能频率不够
         odom_pub.publish(odom_msg);
     }
 }
 
-int                                   tag_len;
-std::string                           file     = "../test.jpg";
-cv::Mat                               image    = cv::imread(file);
-int                                   tag_size = 15;
 std::vector<std::vector<cv::Point3f>> tag_coord;
-bool                                  ret = LoadBoard("../board.txt", tag_size, tag_coord);
-cv::Mat inrinsic = (cv::Mat_<float>(3, 3) << 1200, 0, 1920, 0, 1200, 1440, 0, 0, 1);
-cv::Mat distort  = (cv::Mat_<float>(1, 4) << 0, 0, 0, 0);
-
-void tag_process()
+void                                  img_callback(const sensor_msgs::ImageConstPtr &img_msg)
 {
-    tag_len = TagDetector(image, tag_coord, inrinsic, distort, T_Ct_A);
-
-    std::cout << tag_len << std::endl;
-    std::cout << T_Ct_A.matrix() << std::endl;
-    if (tag_len > 2)  // TODO: 添加距离判断？（ < 2m）
+    cv::Mat fisheye_img;
+    try
     {
+        fisheye_img = cv_bridge::toCvCopy(img_msg, sensor_msgs::image_encodings::BGR8)->image;
+    }
+    catch (cv_bridge::Exception &e)
+    {
+        ROS_ERROR("cv_bridge exception: %s", e.what());
+        return;
+    }
+    int tag_len = TagDetector(fisheye_img, tag_coord, intrinsic, distort, T_Ck_A);
+
+    // std::cout << tag_len << std::endl;
+    // std::cout << T_Ct_A.matrix() << std::endl;
+    if (tag_len > 0)  // TODO: 添加距离判断？（ < 2m）
+    {
+        Eigen::Affine3f    T_W_A = T_W_BAt * T_B_C * T_Ck_A;
+        nav_msgs::Odometry tag_pose;
+        tag_pose.header.frame_id      = "map";
+        tag_pose.header.stamp         = img_msg->header.stamp;
+        tag_pose.pose.pose.position.x = T_W_A.translation().x();
+        tag_pose.pose.pose.position.y = T_W_A.translation().y();
+        tag_pose.pose.pose.position.z = T_W_A.translation().z();
+        Eigen::Quaternionf q(T_W_A.matrix().block<3, 3>(0, 0));
+        tag_pose.pose.pose.orientation.w = q.w();
+        tag_pose.pose.pose.orientation.x = q.x();
+        tag_pose.pose.pose.orientation.y = q.y();
+        tag_pose.pose.pose.orientation.z = q.z();
+        tag_pose_pub.publish(tag_pose);
         if (gFuseState == VIO)
         {
-            T_W_V0     = T_W_Vt;
-            T_C0_A     = T_Ct_A;
+            T_W_B0     = T_W_Bt;
+            T_C0_A     = T_Ck_A;
             gFuseState = TAG;
+
+            // std::cout << "T_W_V0.matrix()" << std::endl << T_W_B0.matrix() << std::endl;
+            // std::cout << "T_C0_A.matrix()" << std::endl << T_C0_A.matrix() << std::endl;
+            // std::cout << gFuseState << std::endl;
         }
         else if (gFuseState == TAG2VIO)
         {
-            T_W_V0     = T_W_Vt;
-            T_C0_A     = T_Ct_A;
+            T_W_B0     = T_W_Bt;
+            T_C0_A     = T_Ck_A;
             gFuseState = TAG;
+            // std::cout << "T_W_V0.matrix()" << std::endl << T_W_B0.matrix() << std::endl;
+            // std::cout << "T_C0_A.matrix()" << std::endl << T_C0_A.matrix() << std::endl;
+            // std::cout << gFuseState << std::endl;
+        }
+        if (gFuseState == TAG)
+        {
+            T_W_Bk = T_W_Bt;
         }
     }
     else if (gFuseState == TAG)
     {
-        T_W_V0     = T_W_Vt;
-        T_W_VA0    = T_W_VAt;
+        T_W_B0     = T_W_Bt;
+        T_W_BA0    = T_W_BAt;
         gFuseState = TAG2VIO;
+        // std::cout << "T_W_V0.matrix()" << std::endl << T_W_B0.matrix() << std::endl;
+        // std::cout << "T_W_VA0.matrix()" << std::endl << T_W_BA0.matrix() << std::endl;
+        // std::cout << gFuseState << std::endl;
     }
 }
 
@@ -114,13 +155,26 @@ int main(int argc, char *argv[])
         nh.subscribe<nav_msgs::Odometry>("/vins_estimator/imu_propagate", 100, vio_callback,
                                          ros::VoidConstPtr(), ros::TransportHints().tcpNoDelay());
 
-    odom_pub = nh.advertise<nav_msgs::Odometry>("/odom", 100);
+    ros::Subscriber img_sub =
+        nh.subscribe<sensor_msgs::Image>("/usb_cam/image_raw", 100, img_callback);
+
+    odom_pub     = nh.advertise<nav_msgs::Odometry>("/odom", 100);
+    tag_pose_pub = nh.advertise<nav_msgs::Odometry>("/tag_pose", 100);
+
+    int  tag_size = 15;
+    bool ret =
+        LoadBoard("/home/chrisliu/FASTLAB_ws/src/tag_aided_loc/board.txt", tag_size, tag_coord);
 
     gFuseState = VIO;
+    intrinsic  = (cv::Mat_<float>(3, 3) << 393.07800238, 0, 319.65949468, 0, 393.22628119,
+                 240.06435046, 0, 0, 1);
+    distort    = (cv::Mat_<float>(1, 4) << 0.012564748398953971, -0.01475250908709762,
+               0.0030947317078050427, 0.0006145522119168964);
 
-    T_B_C = Eigen::Affine3f::Identity();  // TODO: 读取外参
+    // TODO: 读取外参
+    T_B_C.matrix() << -0.01860761, 0.99975974, 0.01158533, -0.10637797, 0.99939245, 0.01825674,
+        0.02968864, 0.0111378, 0.02947, 0.01213072, -0.99949205, -0.14963229, 0., 0., 0., 1.;
 
-    std::thread tag_thread = std::thread(tag_process);
     ros::spin();
     return 0;
 }

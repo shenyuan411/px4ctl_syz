@@ -4,6 +4,7 @@
 #include <opencv2/core.hpp>
 #include <opencv2/aruco.hpp>
 #include <opencv2/aruco/dictionary.hpp>
+#include <opencv2/highgui.hpp>
 #include <opencv2/opencv.hpp>
 #include <opencv2/core/eigen.hpp>
 
@@ -11,12 +12,15 @@
 #include <iostream>
 #include <fstream>
 
+#define VIS 0
+
 bool LoadBoard(std::string file, int tag_size, std::vector<std::vector<cv::Point3f>> &tag_coord)
 {
     std::ifstream fin(file);
     if (!fin)
     {
-        return false;
+        std::cout << "Failed to load board file!" << std::endl;
+        exit(EXIT_FAILURE);
     }
 
     for (int tag_num = 0; tag_num < tag_size; tag_num++)
@@ -61,8 +65,8 @@ int TagDetector(cv::Mat &image, std::vector<std::vector<cv::Point3f>> &tag_coord
             }
         }
 
-        std::cout << t_tag_coord[0] << std::endl;
-        std::cout << t_cam_coord[0] << std::endl;
+        // std::cout << t_tag_coord[0] << std::endl;
+        // std::cout << t_cam_coord[0] << std::endl;
 
         cv::Mat rvec, tvec;
         cv::solvePnPRansac(t_tag_coord, t_cam_coord, inrinsic, distort, rvec, tvec);
@@ -76,12 +80,16 @@ int TagDetector(cv::Mat &image, std::vector<std::vector<cv::Point3f>> &tag_coord
         cv::cv2eigen(R, R_eigen);
         cv::cv2eigen(t, t_eigen);
 
-        pose.rotate(R_eigen);
-        pose.translation() = t_eigen;
-        // pose.block<3,3>(0,0) = R_eigen;
-        // pose.block<3,1>(0,3) = t_eigen;
+        pose.matrix().block<3, 3>(0, 0) = R_eigen;
+        pose.matrix().block<3, 1>(0, 3) = t_eigen;
         // pose.block<1,3>(3,0) = Eigen::RowVector3f::Zero();
         // pose(3,3) = 1;
+        if (VIS)
+        {
+            cv::aruco::drawDetectedMarkers(image, markerCorners);
+            cv::imshow("image", image);
+            cv::waitKey(1);
+        }
     }
 
     return markerIds.size();
