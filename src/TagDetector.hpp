@@ -12,7 +12,7 @@
 #include <iostream>
 #include <fstream>
 
-#define VIS 1
+#define VIS 0
 
 bool LoadBoard(std::string file, int tag_size, std::vector<std::vector<cv::Point3f>> &tag_coord)
 {
@@ -20,6 +20,7 @@ bool LoadBoard(std::string file, int tag_size, std::vector<std::vector<cv::Point
     if (!fin)
     {
         std::cout << "Failed to load board file!" << std::endl;
+        std::cout << "Input path: " << file << std::endl;
         exit(EXIT_FAILURE);
     }
 

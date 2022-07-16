@@ -20,6 +20,8 @@
 
 using namespace std;
 
+#define SIM 1
+
 // Finite state machine
 // VIO<-->TAG
 enum FEEDBACK_STATE
@@ -49,7 +51,7 @@ mavros_msgs::State px4_state;
 #define TAKEOFF_ALTITUDE 0.5
 double last_set_hover_pose_time;
 
-ros::Publisher     target_pose_pub;
+ros::Publisher     target_pose_pub, tag_pose_pub;
 ros::ServiceClient arming_client;
 ros::ServiceClient set_mode_client;
 
@@ -63,17 +65,17 @@ std::vector<std::vector<cv::Point3f>> tag_coord;
 
 // 0: 初始时刻； k：看到TAG时刻； t:实时
 Eigen::Affine3f T_B0_DES;
-Eigen::Affine3f T_W_DES;
+Eigen::Affine3f T_W_DES, T_W_DES_prev;
 Eigen::Affine3f T_W_TAGk, T_W_TAG;
 
 Eigen::Affine3f T_Ck_TAG;
 
-void odom_callback(const nav_msgs::OdometryConstPtr &odom_msg)
+void odom_callback(const geometry_msgs::PoseStampedConstPtr &odom_msg)
 {
-    Eigen::Vector3f    p(odom_msg->pose.pose.position.x, odom_msg->pose.pose.position.y,
-                         odom_msg->pose.pose.position.z);
-    Eigen::Quaternionf q(odom_msg->pose.pose.orientation.w, odom_msg->pose.pose.orientation.x,
-                         odom_msg->pose.pose.orientation.y, odom_msg->pose.pose.orientation.z);
+    Eigen::Vector3f    p(odom_msg->pose.position.x, odom_msg->pose.position.y,
+                         odom_msg->pose.position.z);
+    Eigen::Quaternionf q(odom_msg->pose.orientation.w, odom_msg->pose.orientation.x,
+                         odom_msg->pose.orientation.y, odom_msg->pose.orientation.z);
 
     T_W_Bt.matrix().block<3, 3>(0, 0) = q.toRotationMatrix();
     T_W_Bt.matrix().block<3, 1>(0, 3) = p;
@@ -93,9 +95,23 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
     }
     int tag_len = TagDetector(fisheye_img, tag_coord, intrinsic, distort, T_Ck_TAG);
 
-    if (tag_len > 4)
+    if (tag_len > 2)
     {
         T_W_TAG = T_W_Bt * T_B_C * T_Ck_TAG;
+
+        geometry_msgs::PoseStamped pose;
+        pose.header.stamp    = ros::Time::now();
+        pose.header.frame_id = "map";
+        pose.pose.position.x = T_W_TAG.translation().x();
+        pose.pose.position.y = T_W_TAG.translation().y();
+        pose.pose.position.z = T_W_TAG.translation().z();
+        Eigen::Quaternionf q(T_W_TAG.matrix().block<3, 3>(0, 0));
+        pose.pose.orientation.w = q.w();
+        pose.pose.orientation.x = q.x();
+        pose.pose.orientation.y = q.y();
+        pose.pose.orientation.z = q.z();
+
+        tag_pose_pub.publish(pose);
         if (fb_state == VIO)
         {
             T_W_TAGk = T_W_TAG;
@@ -139,6 +155,8 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
                 last_set_hover_pose_time = ros::Time::now().toSec();
                 T_B0_DES                 = Eigen::Affine3f::Identity();
                 T_B0_DES.translation()   = Eigen::Vector3f(0.0, 0.0, TAKEOFF_ALTITUDE);
+                T_W_TAG                  = Eigen::Affine3f::Identity();
+                T_W_DES_prev             = T_W_B0 * T_B0_DES;
                 ROS_INFO("Switch to POSITION succeed!");
             }
             else
@@ -180,72 +198,77 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
                 return;
             }
         }
+        mode = INIT;
     }
-    if (rc_msg->channels[5] > 1750)
+    if (!SIM)
     {
-        if (mode == POSITION)
+        if (rc_msg->channels[5] > 1750)
         {
-            if (rc_ch[0] == 0.0 && rc_ch[1] == 0.0 && rc_ch[2] == 0.0 && rc_ch[3] == 0.0 &&
-                !px4_state.armed)
+            if (mode == POSITION)
             {
-                if (px4_state.mode != "OFFBOARD")
+                if (rc_ch[0] == 0.0 && rc_ch[1] == 0.0 && rc_ch[2] == 0.0 && rc_ch[3] == 0.0 &&
+                    !px4_state.armed)
                 {
-                    mavros_msgs::SetMode offb_set_mode;
-                    offb_set_mode.request.custom_mode = "OFFBOARD";
-                    if (set_mode_client.call(offb_set_mode) && offb_set_mode.response.mode_sent)
+                    if (px4_state.mode != "OFFBOARD")
                     {
-                        ROS_INFO("Offboard enabled");
+                        mavros_msgs::SetMode offb_set_mode;
+                        offb_set_mode.request.custom_mode = "OFFBOARD";
+                        if (set_mode_client.call(offb_set_mode) && offb_set_mode.response.mode_sent)
+                        {
+                            ROS_INFO("Offboard enabled");
+                        }
+                        else
+                        {
+                            ROS_WARN("Failed to enter OFFBOARD!");
+                            return;
+                        }
                     }
-                    else
+                    else if (px4_state.mode == "OFFBOARD")
                     {
-                        ROS_WARN("Failed to enter OFFBOARD!");
-                        return;
+                        mavros_msgs::CommandBool arm_cmd;
+                        arm_cmd.request.value = true;
+
+                        if (arming_client.call(arm_cmd) && arm_cmd.response.success)
+                        {
+                            ROS_INFO("Vehicle armed");
+                        }
+                        else
+                        {
+                            ROS_ERROR("Failed to armed");
+                            return;
+                        }
                     }
                 }
-                else if (px4_state.mode == "OFFBOARD")
+                else if (!px4_state.armed)
                 {
-                    mavros_msgs::CommandBool arm_cmd;
-                    arm_cmd.request.value = true;
-
-                    if (arming_client.call(arm_cmd) && arm_cmd.response.success)
-                    {
-                        ROS_INFO("Vehicle armed");
-                    }
-                    else
-                    {
-                        ROS_ERROR("Failed to armed");
-                        return;
-                    }
+                    ROS_WARN("Arm denied! Rockers are not in reset middle!");
+                    return;
                 }
             }
-            else if (!px4_state.armed)
+        }
+        else if (rc_msg->channels[5] < 1250)
+        {
+            if (px4_state.armed)
             {
-                ROS_WARN("Arm denied! Rockers are not in reset middle!");
-                return;
+                mavros_msgs::CommandBool arm_cmd;
+                arm_cmd.request.value = false;
+
+                if (arming_client.call(arm_cmd) && arm_cmd.response.success)
+                {
+                    ROS_INFO("Vehicle disarmed");
+                }
+                else
+                {
+                    ROS_ERROR("Failed to disarmed");
+                    return;
+                }
+                fb_state = VIO;
+                mode     = INIT;
             }
         }
     }
-    else if (rc_msg->channels[5] < 1250)
-    {
-        if (px4_state.armed)
-        {
-            mavros_msgs::CommandBool arm_cmd;
-            arm_cmd.request.value = false;
 
-            if (arming_client.call(arm_cmd) && arm_cmd.response.success)
-            {
-                ROS_INFO("Vehicle disarmed");
-            }
-            else
-            {
-                ROS_ERROR("Failed to disarmed");
-                return;
-            }
-            fb_state = VIO;
-            mode     = INIT;
-        }
-    }
-    if (mode == POSITION)
+    if (mode != INIT)
     {
         double now               = ros::Time::now().toSec();
         double delta_t           = now - last_set_hover_pose_time;
@@ -278,9 +301,8 @@ int main(int argc, char *argv[])
     ros::NodeHandle nh("~");
     ros::Rate       rate(30);
 
-    ros::Subscriber odom_sub =
-        nh.subscribe<nav_msgs::Odometry>("/mavros/local_position/odom", 100, odom_callback,
-                                         ros::VoidConstPtr(), ros::TransportHints());
+    ros::Subscriber odom_sub = nh.subscribe<geometry_msgs::PoseStamped>(
+        "/mavros/vision_pose/pose", 100, odom_callback, ros::VoidConstPtr(), ros::TransportHints());
 
     ros::Subscriber state_sub =
         nh.subscribe<mavros_msgs::State>("/mavros/state", 10, px4_state_callback,
@@ -294,6 +316,7 @@ int main(int argc, char *argv[])
 
     target_pose_pub =
         nh.advertise<geometry_msgs::PoseStamped>("/mavros/setpoint_position/local", 100);
+    tag_pose_pub    = nh.advertise<geometry_msgs::PoseStamped>("/tag_pose", 100);
     arming_client   = nh.serviceClient<mavros_msgs::CommandBool>("/mavros/cmd/arming");
     set_mode_client = nh.serviceClient<mavros_msgs::SetMode>("/mavros/set_mode");
 
@@ -324,29 +347,37 @@ int main(int argc, char *argv[])
                 {
                     // 解释版：T_W_DES = T_W_TAG * T_W_TAGk.inverse() * T_W_DESk * T_W_DESk.inverse() * T_W_B0 * T_B0_DES;
 
-                    // ideally, it should be: R = I, p = delta
-                    Eigen::Vector3f p_delta = (T_W_TAG * T_W_TAGk.inverse()).translation();
+                    Eigen::Vector3f p_delta = T_W_TAG.translation() - T_W_TAGk.translation();
                     T_W_DES.translation().x() += p_delta.x();
                     T_W_DES.translation().y() += p_delta.y();
                 }
             }
             else if (mode == TAG_SERVO)
             {
-                T_W_DES.translation().x() = T_W_TAG.translation().x();
-                T_W_DES.translation().y() = T_W_TAG.translation().y();
+                if (fb_state == TAG)
+                {
+                    T_W_DES.translation().x() = T_W_TAG.translation().x();
+                    T_W_DES.translation().y() = T_W_TAG.translation().y();
+                }
             }
-            geometry_msgs::PoseStamped pose;
-            pose.header.stamp    = ros::Time::now();
-            pose.header.frame_id = "map";
-            pose.pose.position.x = T_W_DES.translation().x();
-            pose.pose.position.y = T_W_DES.translation().y();
-            pose.pose.position.z = T_W_DES.translation().z();
-            Eigen::Quaternionf q(T_W_DES.matrix().block<3, 3>(0, 0));
-            pose.pose.orientation.w = q.w();
-            pose.pose.orientation.x = q.x();
-            pose.pose.orientation.y = q.y();
-            pose.pose.orientation.z = q.z();
-            target_pose_pub.publish(pose);
+
+            if ((T_W_DES.translation() - T_W_DES_prev.translation()).norm() * 30 < MAX_MANUAL_VEL)
+            {
+                geometry_msgs::PoseStamped pose;
+                pose.header.stamp    = ros::Time::now();
+                pose.header.frame_id = "map";
+                pose.pose.position.x = T_W_DES.translation().x();
+                pose.pose.position.y = T_W_DES.translation().y();
+                pose.pose.position.z = T_W_DES.translation().z();
+                Eigen::Quaternionf q(T_W_DES.matrix().block<3, 3>(0, 0));
+                pose.pose.orientation.w = q.w();
+                pose.pose.orientation.x = q.x();
+                pose.pose.orientation.y = q.y();
+                pose.pose.orientation.z = q.z();
+                target_pose_pub.publish(pose);
+
+                T_W_DES_prev = T_W_DES;
+            }
         }
         ros::spinOnce();
         rate.sleep();
