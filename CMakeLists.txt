@@ -29,4 +29,8 @@ target_link_libraries(tag
         ${OpenCV_LIBS})
 
 add_executable(tag_aided_loc_node src/tag_aided_loc_node.cpp)
-target_link_libraries(tag_aided_loc_node ${catkin_LIBRARIES} ${OpenCV_LIBS} dw)
+target_link_libraries(tag_aided_loc_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
+
+add_executable(tag_positioning_node src/tag_positioning_node.cpp)
+target_link_libraries(tag_positioning_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
+

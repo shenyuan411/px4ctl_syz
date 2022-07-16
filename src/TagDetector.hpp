@@ -12,7 +12,7 @@
 #include <iostream>
 #include <fstream>
 
-#define VIS 0
+#define VIS 1
 
 bool LoadBoard(std::string file, int tag_size, std::vector<std::vector<cv::Point3f>> &tag_coord)
 {
