@@ -41,7 +41,7 @@ FEEDBACK_STATE fb_state;
 
 MODE mode;
 
-mavros_msgs::State px4_state;
+mavros_msgs::State px4_state, px4_state_prev;
 
 #define DEAD_ZONE 0.25
 #define MAX_MANUAL_VEL 1.0
@@ -153,6 +153,8 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
             if (set_mode_client.call(offb_set_mode) && offb_set_mode.response.mode_sent)
             {
                 ROS_INFO("Switch to STABILIZED!");
+                px4_state_prev      = px4_state;
+                px4_state_prev.mode = "STABILIZED";
             }
             else
             {
@@ -217,6 +219,8 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
                         if (set_mode_client.call(offb_set_mode) && offb_set_mode.response.mode_sent)
                         {
                             ROS_INFO("Offboard enabled");
+                            px4_state_prev      = px4_state;
+                            px4_state_prev.mode = "OFFBOARD";
                         }
                         else
                         {
@@ -249,13 +253,15 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
         }
         else if (rc_msg->channels[5] > 1250 && rc_msg->channels[5] < 1750)
         {
-            if (px4_state.mode == "OFFBOARD")
+            if (px4_state_prev.mode == "OFFBOARD")
             {
                 mavros_msgs::SetMode offb_set_mode;
                 offb_set_mode.request.custom_mode = "AUTO.LAND";
                 if (set_mode_client.call(offb_set_mode) && offb_set_mode.response.mode_sent)
                 {
                     ROS_INFO("AUTO.LAND enabled");
+                    px4_state_prev      = px4_state;
+                    px4_state_prev.mode = "AUTO.LAND";
                 }
                 else
                 {
@@ -282,7 +288,6 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
                 }
                 fb_state = VIO;
                 mode     = INIT;
-
                 ROS_INFO("Swith to INIT state!");
             }
         }
