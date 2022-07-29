@@ -20,7 +20,7 @@
 
 using namespace std;
 
-#define SIM 1
+#define SIM 0
 
 // Finite state machine
 // VIO<-->TAG
@@ -144,7 +144,25 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
             rc_ch[i] = 0.0;
     }
 
-    if (rc_msg->channels[4] > 1250 && rc_msg->channels[4] < 1750)  // heading to POSITION
+    if (rc_msg->channels[4] < 1250)
+    {
+        if (px4_state.mode != "STABILIZED")
+        {
+            mavros_msgs::SetMode offb_set_mode;
+            offb_set_mode.request.custom_mode = "STABILIZED";
+            if (set_mode_client.call(offb_set_mode) && offb_set_mode.response.mode_sent)
+            {
+                ROS_INFO("Switch to STABILIZED!");
+            }
+            else
+            {
+                ROS_WARN("Failed to enter STABILIZED!");
+                return;
+            }
+        }
+        mode = INIT;
+    }
+    else if (rc_msg->channels[4] > 1250 && rc_msg->channels[4] < 1750)  // heading to POSITION
     {
         if (mode == INIT)
         {
@@ -182,24 +200,7 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
             ROS_INFO("Swith to TAG_SERVO succeed!");
         }
     }
-    else if (rc_msg->channels[4] < 1250)
-    {
-        if (px4_state.mode != "STABILIZED")
-        {
-            mavros_msgs::SetMode offb_set_mode;
-            offb_set_mode.request.custom_mode = "STABILIZED";
-            if (set_mode_client.call(offb_set_mode) && offb_set_mode.response.mode_sent)
-            {
-                ROS_INFO("Switch to STABILIZED!");
-            }
-            else
-            {
-                ROS_WARN("Failed to enter STABILIZED!");
-                return;
-            }
-        }
-        mode = INIT;
-    }
+
     if (!SIM)
     {
         if (rc_msg->channels[5] > 1750)
@@ -246,6 +247,23 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
                 }
             }
         }
+        else if (rc_msg->channels[5] > 1250 && rc_msg->channels[5] < 1750)
+        {
+            if (px4_state.mode == "OFFBOARD")
+            {
+                mavros_msgs::SetMode offb_set_mode;
+                offb_set_mode.request.custom_mode = "AUTO.LAND";
+                if (set_mode_client.call(offb_set_mode) && offb_set_mode.response.mode_sent)
+                {
+                    ROS_INFO("AUTO.LAND enabled");
+                }
+                else
+                {
+                    ROS_WARN("Failed to enter AUTO.LAND!");
+                    return;
+                }
+            }
+        }
         else if (rc_msg->channels[5] < 1250)
         {
             if (px4_state.armed)
@@ -264,6 +282,8 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
                 }
                 fb_state = VIO;
                 mode     = INIT;
+
+                ROS_INFO("Swith to INIT state!");
             }
         }
     }
@@ -322,8 +342,8 @@ int main(int argc, char *argv[])
 
     int  tag_size = 15;
     bool ret =
-        LoadBoard("/home/chrisliu/FASTLAB_ws/src/tag_aided_loc/board.txt", tag_size, tag_coord);
-    // LoadBoard("/home/nros/FASTLAB_ws/src/tag_aided_loc/board.txt", tag_size, tag_coord);
+        // LoadBoard("/home/chrisliu/FASTLAB_ws/src/tag_aided_loc/board.txt", tag_size, tag_coord);
+        LoadBoard("/home/nros/FASTLAB_ws/src/tag_aided_loc/board.txt", tag_size, tag_coord);
 
     intrinsic = (cv::Mat_<float>(3, 3) << 393.07800238, 0, 319.65949468, 0, 393.22628119,
                  240.06435046, 0, 0, 1);
@@ -361,23 +381,20 @@ int main(int argc, char *argv[])
                 }
             }
 
-            if ((T_W_DES.translation() - T_W_DES_prev.translation()).norm() * 30 < MAX_MANUAL_VEL)
-            {
-                geometry_msgs::PoseStamped pose;
-                pose.header.stamp    = ros::Time::now();
-                pose.header.frame_id = "map";
-                pose.pose.position.x = T_W_DES.translation().x();
-                pose.pose.position.y = T_W_DES.translation().y();
-                pose.pose.position.z = T_W_DES.translation().z();
-                Eigen::Quaternionf q(T_W_DES.matrix().block<3, 3>(0, 0));
-                pose.pose.orientation.w = q.w();
-                pose.pose.orientation.x = q.x();
-                pose.pose.orientation.y = q.y();
-                pose.pose.orientation.z = q.z();
-                target_pose_pub.publish(pose);
+            geometry_msgs::PoseStamped pose;
+            pose.header.stamp    = ros::Time::now();
+            pose.header.frame_id = "map";
+            pose.pose.position.x = T_W_DES.translation().x();
+            pose.pose.position.y = T_W_DES.translation().y();
+            pose.pose.position.z = T_W_DES.translation().z();
+            Eigen::Quaternionf q(T_W_DES.matrix().block<3, 3>(0, 0));
+            pose.pose.orientation.w = q.w();
+            pose.pose.orientation.x = q.x();
+            pose.pose.orientation.y = q.y();
+            pose.pose.orientation.z = q.z();
+            target_pose_pub.publish(pose);
 
-                T_W_DES_prev = T_W_DES;
-            }
+            T_W_DES_prev = T_W_DES;
         }
         ros::spinOnce();
         rate.sleep();
