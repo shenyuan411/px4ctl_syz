@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.0.2)
-project(tag_aided_loc)
+project(tag_px4ctl)
 
-# set(CMAKE_BUILD_TYPE "Release")
-set(CMAKE_BUILD_TYPE "RelWithDebInfo")
+set(CMAKE_BUILD_TYPE "Release")
+# set(CMAKE_BUILD_TYPE "RelWithDebInfo")
 # set(CMAKE_BUILD_TYPE "Debug")
 
 find_package(catkin REQUIRED COMPONENTS
@@ -31,6 +31,6 @@ target_link_libraries(tag
 add_executable(tag_aided_loc_node src/tag_aided_loc_node.cpp)
 target_link_libraries(tag_aided_loc_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
-add_executable(tag_positioning_node src/tag_positioning_node.cpp)
-target_link_libraries(tag_positioning_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
+add_executable(tag_servo_node src/tag_servo_node.cpp)
+target_link_libraries(tag_servo_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
 

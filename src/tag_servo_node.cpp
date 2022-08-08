@@ -34,7 +34,8 @@ enum MODE
 {
     INIT,
     POSITION,
-    TAG_SERVO
+    TAG_SERVO,
+    LAND
 };
 
 FEEDBACK_STATE fb_state;
@@ -255,19 +256,21 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
         {
             if (px4_state_prev.mode == "OFFBOARD")
             {
-                mavros_msgs::SetMode offb_set_mode;
-                offb_set_mode.request.custom_mode = "AUTO.LAND";
-                if (set_mode_client.call(offb_set_mode) && offb_set_mode.response.mode_sent)
-                {
-                    ROS_INFO("AUTO.LAND enabled");
-                    px4_state_prev      = px4_state;
-                    px4_state_prev.mode = "AUTO.LAND";
-                }
-                else
-                {
-                    ROS_WARN("Failed to enter AUTO.LAND!");
-                    return;
-                }
+                // AUTO.LAND 会导致降落时机头变化，待排查
+                // mavros_msgs::SetMode offb_set_mode;
+                // offb_set_mode.request.custom_mode = "AUTO.LAND";
+                // if (set_mode_client.call(offb_set_mode) && offb_set_mode.response.mode_sent)
+                // {
+                //     ROS_INFO("AUTO.LAND enabled");
+                //     px4_state_prev      = px4_state;
+                //     px4_state_prev.mode = "AUTO.LAND";
+                // }
+                // else
+                // {
+                //     ROS_WARN("Failed to enter AUTO.LAND!");
+                //     return;
+                // }
+                mode = LAND;
             }
         }
         else if (rc_msg->channels[5] < 1250)
@@ -304,8 +307,15 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
             rc_ch[1] * MAX_MANUAL_VEL * delta_t * (RC_REVERSE_PITCH ? -1 : 1);
         T_B0_DES.translation().y() +=
             rc_ch[3] * MAX_MANUAL_VEL * delta_t * (RC_REVERSE_ROLL ? 1 : -1);
-        T_B0_DES.translation().z() +=
-            rc_ch[2] * MAX_MANUAL_VEL * delta_t * (RC_REVERSE_THROTTLE ? -1 : 1);
+        if (mode == LAND)
+        {
+            T_B0_DES.translation().z() -= 0.2 * delta_t;
+        }
+        else
+        {
+            T_B0_DES.translation().z() +=
+                rc_ch[2] * MAX_MANUAL_VEL * delta_t * (RC_REVERSE_THROTTLE ? -1 : 1);
+        }
         // hover_pose(3) +=
         //     rc_ch[3] * param.max_manual_vel * delta_t * (param.rc_reverse.yaw ? 1 : -1);
 

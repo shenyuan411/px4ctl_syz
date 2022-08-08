@@ -1,75 +1,60 @@
-# VINS-RGBD-FAST
+# TAG_PX4CTL
 
-**VINS-RGBD-FAST** is a SLAM system based on VINS-RGBD. We do some refinements to accelerate the system's performance in resource-constrained embedded paltform, like [HUAWEI Atlas200 DK](https://e.huawei.com/en/products/cloud-computing-dc/atlas/atlas-200), [NVIDIA Jetson AGX Xavier](https://www.nvidia.com/en-us/autonomous-machines/embedded-systems/jetson-agx-xavier/).
+# 使用方法
+## 1. 终端
+1. `roslaunch mavros px4.launch`
+2. 启动摄像头
 
-## Refinements
-* grid-based feature detection
-* extract FAST feature instead of Harris feature
-* added stationary initialization
-* added IMU-aided feature tracking
-* added extracted-feature area's quality judgement
-* solved feature clusttering problem result frome FAST feature
-* use "sensor_msg::CompressedImage" as image topic type
-  
-## RGBD-Inertial Trajectory Estimation and Mapping for Small Ground Rescue Robot
+    `roslaunch vins_estimator rs_camera.launch`
 
-Based one open source SLAM framework [VINS-Mono](https://github.com/HKUST-Aerial-Robotics/VINS-Mono).
+    `roslaunch vins_estimator usb_cam-test.launch`
+3. 启动状态估计
+   
+   `roslaunch tag_px4ctl mocap.launch`
+   
+   or 
+   
+   `roslaunch tag_px4ctl vins.launch`
 
-The approach contains
-+ Depth-integrated visual-inertial initialization process.
-+ Visual-inertial odometry by utilizing depth information while avoiding the limitation is working for 3D pose estimation.
-+ Noise elimination map which is suitable for path planning and navigation.
+4. 启动tag伺服（启动前请保证遥控器各个摇杆在初始位置）
+   
+   `rosrun tag_px4ctl tag_servo_node`
 
-However, the proposed approach can also be applied to other application like handheld and wheeled robot.
+## 2. 遥控器
 
-## 1. Prerequisites
-1.1. **Ubuntu** 16.04 or 18.04.
+### 2.1. 通道说明：
+- 5：控制控制模式
+  - 低：手动
+  - 中：位置模式
+  - 高：伺服模式
+- 6：控制飞控模式
+  - 低：上锁
+  - 中：
+    - OFFBOARD模式下：降落
+    - 其他模式：无操作
+  - 高：解锁并切到OFFBOARD模式
+- 7：急停开关
+  - 高：急停
 
-1.2. **ROS** version Kinetic or Melodic fully installation
+**进行一切操作时，务必一手握住通道7随时急停！！！**
 
-1.3. **Ceres Solver**
-Follow [Ceres Installation](http://ceres-solver.org/installation.html)
+### 2.2. 操作说明
 
-1.4. **Sophus**
-```
-  git clone http://github.com/strasdat/Sophus.git
-  git checkout a621ff
-```
+1. 摇杆归零（通道567应当都为低档位），rpy归零
+2. 启动tag伺服
+   
+   `rosrun tag_px4ctl tag_servo_node`
+3. 5切中，提示油门增大到0.5
+4. 油门增大到0.5，切到位置模式，此时应有`/mavros/setpoint_position/local`的消息发布
+5. 6切高，无人机解锁并起飞
+6. 推动rpt(hrottle)，无人机进行位置模式飞行
+7. 若看到tag，5切高，则切换到tag伺服，此时无人机会自动飞到tag的零点上方；此时依旧可以通过油门控制高度
+8. （5切中退出tag伺服）
+9. 6切中，无人机降落
+10. 6切低，无人机上锁
 
-1.3. **Atlas 200 DK环境配置**
+### 2.3. 应急操作
 
-[https://blog.csdn.net/qq_42703283/article/details/110389270](https://blog.csdn.net/qq_42703283/article/details/110389270)
-
-1.4. **ROS多机通信**
-
-[https://blog.csdn.net/qq_42703283/article/details/110408848](
-
-## 2. Datasets
-
-Recording by RealSense D435i. Contain 9 bags in three different applicaions:
-+ [Handheld](https://star-center.shanghaitech.edu.cn/seafile/d/0ea45d1878914077ade5/)
-+ [Wheeled robot](https://star-center.shanghaitech.edu.cn/seafile/d/78c0375114854774b521/) ([Jackal](https://www.clearpathrobotics.com/jackal-small-unmanned-ground-vehicle/))
-+ [Tracked robot](https://star-center.shanghaitech.edu.cn/seafile/d/f611fc44df0c4b3d936d/)
-
-Note the rosbags are in compressed format. Use "rosbag decompress" to decompress.
-
-Topics:
-+ depth topic: /camera/aligned_depth_to_color/image_raw
-+ color topic: /camera/color/image_raw
-+ imu topic: /camera/imu
-
-我们使用的是压缩图像节点：
-
-+ depth topic: /camera/aligned_depth_to_color/image_raw
-+ color topic: /camera/color/image_raw/compressed
-+ imu topic: /camera/imu
-
-如何录制一个数据包
-
-1. 运行d435i
-2. `rosbag record /camera/imu /camera/color/image_raw /camera/aligned_depth_to_color/image_raw /camera/color/camera_info /camera/color/image_raw/compressed`
-
-
-## 3. Licence
-The source code is released under [GPLv3](http://www.gnu.org/licenses/) license.
-
+1. 先尝试6切中，令无人机自行降落，然后再6切低，令无人机上锁
+2. 无人机若不降落，若有手飞经验，可5切低进行手动控制，注意当前油门为0.5，无人机可能会往上飞，适当控制油门自行降落，然后再6切低，令无人机上锁
+3. 危急时刻，直接7切高，令无人机急停
