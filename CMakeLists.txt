@@ -34,3 +34,6 @@ target_link_libraries(tag_aided_loc_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
 add_executable(tag_servo_node src/tag_servo_node.cpp)
 target_link_libraries(tag_servo_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
+add_executable(auto_catch_ctl src/auto_catch_ctl.cpp)
+target_link_libraries(auto_catch_ctl ${catkin_LIBRARIES} ${OpenCV_LIBS})
+
