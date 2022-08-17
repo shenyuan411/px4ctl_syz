@@ -8,15 +8,14 @@
 #include "mavros_msgs/RCIn.h"
 #include "mavros_msgs/SetMode.h"
 #include "mavros_msgs/State.h"
-#include "ros/init.h"
 #include "sensor_msgs/Image.h"
 
-// #define BACKWARD_HAS_DW 1
-// #include "backward.hpp"
-// namespace backward
-// {
-// backward::SignalHandling sh;
-// }
+#define BACKWARD_HAS_DW 1
+#include "backward.hpp"
+namespace backward
+{
+backward::SignalHandling sh;
+}
 
 using namespace std;
 
@@ -29,14 +28,6 @@ enum FEEDBACK_STATE
     VIO,
     TAG
 };
-
-// enum MODE
-// {
-//     INIT,
-//     POSITION,
-//     TAG_SERVO,
-//     LAND
-// };
 
 enum MISSION_STATE
 {
@@ -57,7 +48,7 @@ mavros_msgs::State px4_state, px4_state_prev;
 #define RC_REVERSE_PITCH 0
 #define RC_REVERSE_ROLL 0
 #define RC_REVERSE_THROTTLE 0
-#define TAKEOFF_ALTITUDE 0.5
+#define TAKEOFF_ALTITUDE 0.35
 Eigen::Vector3f TAKEOFF_POS(0.0, 0.0, TAKEOFF_ALTITUDE);
 Eigen::Vector3f TO_POINT_POS(1.0, 0.0, TAKEOFF_ALTITUDE);
 
@@ -106,9 +97,8 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
         return;
     }
     int tag_len = TagDetector(fisheye_img, tag_coord, intrinsic, distort, T_Ck_TAG);
-    cout << "T_Ck_TAG:" << endl << T_Ck_TAG.matrix() << endl;
 
-    if (tag_len > 2)
+    if (tag_len > 1)
     {
         T_W_TAG = T_W_Bt * T_B_C * T_Ck_TAG;
 
@@ -183,13 +173,21 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
         {
             if (rc_ch[0] == 0.0 && rc_ch[1] == 0.0 && rc_ch[2] == 0.0 && rc_ch[3] == 0.0)
             {
-                T_W_B0                   = T_W_Bt;
-                mission_state            = POSITION;
-                last_set_hover_pose_time = ros::Time::now().toSec();
-                T_B0_DES                 = Eigen::Affine3f::Identity();
-                T_B0_DES.translation()   = TAKEOFF_POS;
-                T_W_TAG                  = Eigen::Affine3f::Identity();
-                ROS_INFO("Switch to POSITION succeed!");
+                if (T_W_Bt.matrix()(0, 0) == 0)
+                {
+                    ROS_WARN("Switch to POSITION failed! Not receie Odom!");
+                    return;
+                }
+                else
+                {
+                    T_W_B0                   = T_W_Bt;
+                    mission_state            = POSITION;
+                    last_set_hover_pose_time = ros::Time::now().toSec();
+                    T_B0_DES                 = Eigen::Affine3f::Identity();
+                    T_B0_DES.translation()   = TAKEOFF_POS;
+                    T_W_TAG                  = Eigen::Affine3f::Identity();
+                    ROS_INFO("Switch to POSITION succeed!");
+                }
             }
             else
             {
@@ -200,25 +198,29 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
         else if (mission_state == TAG_SERVO)
         {
             Eigen::Vector3f p_B0_DES   = (T_W_B0.inverse() * T_W_DES).translation();
-            T_B0_DES.translation().x() = p_B0_DES.x() - TAKEOFF_POS.x();
-            T_B0_DES.translation().y() = p_B0_DES.y() - TAKEOFF_POS.y();
-            mission_state              = POSITION;
-            ROS_INFO("Swith to POSITION succeed!");
+            T_B0_DES.translation().x() = TAKEOFF_POS.x();
+            T_B0_DES.translation().y() = TAKEOFF_POS.y();
+            // T_B0_DES.translation().x() = p_B0_DES.x();
+            // T_B0_DES.translation().y() = p_B0_DES.y();
+            mission_state = POSITION;
+            ROS_INFO("Swith to POSITION succeed! Heading to TAKEOFF_POS.");
         }
     }
     else if (rc_msg->channels[4] > 1750)
     {
-        if (mission_state == POSITION && rc_ch[0] == 0.0 && rc_ch[1] == 0.0 && rc_ch[2] == 0.0 &&
-            rc_ch[3] == 0.0)
+        if (mission_state == POSITION)
         {
-            T_B0_DES.translation() = TO_POINT_POS;
-            mission_state          = TAG_SERVO;
-            ROS_INFO("Set setpoint to TO_POINT_POS succeed!");
-        }
-        else
-        {
-            ROS_WARN("Set setpoint to TO_POINT_POS failed! Rockers are not in reset middle!");
-            return;
+            if (rc_ch[0] == 0.0 && rc_ch[1] == 0.0 && rc_ch[2] == 0.0 && rc_ch[3] == 0.0)
+            {
+                T_B0_DES.translation() = TO_POINT_POS;
+                mission_state          = TAG_SERVO;
+                ROS_INFO("Set setpoint to TO_POINT_POS succeed!");
+            }
+            else
+            {
+                ROS_WARN("Set setpoint to TO_POINT_POS failed! Rockers are not in reset middle!");
+                return;
+            }
         }
     }
 
@@ -307,10 +309,13 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
         last_set_hover_pose_time = now;
 
         // body frame: x-forward, y-left, z-up
-        T_B0_DES.translation().x() +=
-            rc_ch[1] * MAX_MANUAL_VEL * delta_t * (RC_REVERSE_PITCH ? -1 : 1);
-        T_B0_DES.translation().y() +=
-            rc_ch[3] * MAX_MANUAL_VEL * delta_t * (RC_REVERSE_ROLL ? 1 : -1);
+        if (mission_state == POSITION)
+        {
+            T_B0_DES.translation().x() +=
+                rc_ch[1] * MAX_MANUAL_VEL * delta_t * (RC_REVERSE_PITCH ? -1 : 1);
+            T_B0_DES.translation().y() +=
+                rc_ch[3] * MAX_MANUAL_VEL * delta_t * (RC_REVERSE_ROLL ? 1 : -1);
+        }
         if (mission_state == LAND)
         {
             T_B0_DES.translation().z() -= 0.2 * delta_t;
@@ -359,7 +364,7 @@ int main(int argc, char *argv[])
 
     int  tag_size = 15;
     bool ret =
-        // LoadBoard("/home/chrisliu/FASTLAB_ws/src/tag_aided_loc/board.txt", tag_size, tag_coord);
+        // LoadBoard("/home/chrisliu/FASTLAB_ws/src/tag_px4ctl/board.txt", tag_size, tag_coord);
         LoadBoard("/home/nros/FASTLAB_ws/src/tag_px4ctl/board.txt", tag_size, tag_coord);
 
     intrinsic = (cv::Mat_<float>(3, 3) << 393.07800238, 0, 319.65949468, 0, 393.22628119,

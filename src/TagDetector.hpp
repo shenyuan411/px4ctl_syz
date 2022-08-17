@@ -66,15 +66,12 @@ int TagDetector(cv::Mat &image, std::vector<std::vector<cv::Point3f>> &tag_coord
             }
         }
 
-        // std::cout << t_tag_coord[0] << std::endl;
-        // std::cout << t_cam_coord[0] << std::endl;
-
         cv::Mat rvec, tvec;
         cv::solvePnPRansac(t_tag_coord, t_cam_coord, inrinsic, distort, rvec, tvec);
 
         cv::Mat R, t;
         cv::Rodrigues(rvec, R);
-        t = tvec.clone();
+        t = tvec;
 
         Eigen::Matrix3f R_eigen;
         Eigen::Vector3f t_eigen;
@@ -83,8 +80,6 @@ int TagDetector(cv::Mat &image, std::vector<std::vector<cv::Point3f>> &tag_coord
 
         pose.matrix().block<3, 3>(0, 0) = R_eigen;
         pose.matrix().block<3, 1>(0, 3) = t_eigen;
-        // pose.block<1,3>(3,0) = Eigen::RowVector3f::Zero();
-        // pose(3,3) = 1;
         if (VIS)
         {
             cv::aruco::drawDetectedMarkers(image, markerCorners);

@@ -2,9 +2,9 @@ cmake_minimum_required(VERSION 3.0.2)
 project(tag_px4ctl)
 
 set(CMAKE_BUILD_TYPE "Release")
+
 # set(CMAKE_BUILD_TYPE "RelWithDebInfo")
 # set(CMAKE_BUILD_TYPE "Debug")
-
 find_package(catkin REQUIRED COMPONENTS
         roscpp
         std_msgs
@@ -35,5 +35,4 @@ add_executable(tag_servo_node src/tag_servo_node.cpp)
 target_link_libraries(tag_servo_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
 add_executable(auto_catch_ctl src/auto_catch_ctl.cpp)
-target_link_libraries(auto_catch_ctl ${catkin_LIBRARIES} ${OpenCV_LIBS})
-
+target_link_libraries(auto_catch_ctl ${catkin_LIBRARIES} ${OpenCV_LIBS} dw)

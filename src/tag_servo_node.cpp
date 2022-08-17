@@ -20,7 +20,7 @@
 
 using namespace std;
 
-#define SIM 0
+#define SIM 1
 
 // Finite state machine
 // VIO<-->TAG
@@ -357,8 +357,8 @@ int main(int argc, char *argv[])
 
     int  tag_size = 15;
     bool ret =
-        // LoadBoard("/home/chrisliu/FASTLAB_ws/src/tag_aided_loc/board.txt", tag_size, tag_coord);
-        LoadBoard("/home/nros/FASTLAB_ws/src/tag_aided_loc/board.txt", tag_size, tag_coord);
+        LoadBoard("/home/chrisliu/FASTLAB_ws/src/tag_px4ctl/board.txt", tag_size, tag_coord);
+        // LoadBoard("/home/nros/FASTLAB_ws/src/tag_px4ctl/board.txt", tag_size, tag_coord);
 
     intrinsic = (cv::Mat_<float>(3, 3) << 393.07800238, 0, 319.65949468, 0, 393.22628119,
                  240.06435046, 0, 0, 1);
