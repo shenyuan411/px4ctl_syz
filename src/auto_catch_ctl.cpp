@@ -48,7 +48,8 @@ mavros_msgs::State px4_state, px4_state_prev;
 #define RC_REVERSE_PITCH 0
 #define RC_REVERSE_ROLL 0
 #define RC_REVERSE_THROTTLE 0
-#define TAKEOFF_ALTITUDE 0.35
+#define TAKEOFF_ALTITUDE 0.35  //  动捕：0.35
+#define UAV_HEIGHT 0.3
 Eigen::Vector3f TAKEOFF_POS(0.0, 0.0, TAKEOFF_ALTITUDE);
 Eigen::Vector3f TO_POINT_POS(1.0, 0.0, TAKEOFF_ALTITUDE);
 
@@ -98,7 +99,7 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
     }
     int tag_len = TagDetector(fisheye_img, tag_coord, intrinsic, distort, T_Ck_TAG);
 
-    if (tag_len > 1)
+    if (tag_len > 0)
     {
         T_W_TAG = T_W_Bt * T_B_C * T_Ck_TAG;
 
@@ -127,6 +128,7 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
         Eigen::Vector3f p_B0_DES   = (T_W_B0.inverse() * T_W_DES).translation();
         T_B0_DES.translation().x() = p_B0_DES.x();
         T_B0_DES.translation().y() = p_B0_DES.y();
+        T_B0_DES.translation().z() = p_B0_DES.z();
         fb_state                   = VIO;
         ROS_INFO("Feeback state: VIO");
     }
@@ -318,7 +320,7 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
         }
         if (mission_state == LAND)
         {
-            T_B0_DES.translation().z() -= 0.2 * delta_t;
+            T_B0_DES.translation().z() -= 0.3 * delta_t;
         }
         else
         {
@@ -389,6 +391,8 @@ int main(int argc, char *argv[])
                 {
                     T_W_DES.translation().x() = T_W_TAG.translation().x();
                     T_W_DES.translation().y() = T_W_TAG.translation().y();
+                    T_W_DES.translation().z() =
+                        T_W_TAG.translation().z() + UAV_HEIGHT + TAKEOFF_ALTITUDE;
                 }
             }
 
