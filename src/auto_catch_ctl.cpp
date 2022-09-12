@@ -33,7 +33,7 @@ enum MISSION_STATE
 {
     INIT,
     POSITION,  // TAKEOFF
-    TAG_SERVO,
+    NBV,
     LAND
 };
 
@@ -197,7 +197,7 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
                 return;
             }
         }
-        else if (mission_state == TAG_SERVO)
+        else if (mission_state == NBV)
         {
             Eigen::Vector3f p_B0_DES   = (T_W_B0.inverse() * T_W_DES).translation();
             T_B0_DES.translation().x() = TAKEOFF_POS.x();
@@ -215,7 +215,7 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
             if (rc_ch[0] == 0.0 && rc_ch[1] == 0.0 && rc_ch[2] == 0.0 && rc_ch[3] == 0.0)
             {
                 T_B0_DES.translation() = TO_POINT_POS;
-                mission_state          = TAG_SERVO;
+                mission_state          = NBV;
                 ROS_INFO("Set setpoint to TO_POINT_POS succeed!");
             }
             else
@@ -385,7 +385,7 @@ int main(int argc, char *argv[])
         if (mission_state != INIT)
         {
             T_W_DES = T_W_B0 * T_B0_DES;
-            if (mission_state == TAG_SERVO)
+            if (mission_state == NBV)
             {
                 if (fb_state == TAG)
                 {

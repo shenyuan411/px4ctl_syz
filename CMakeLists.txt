@@ -9,6 +9,7 @@ find_package(catkin REQUIRED COMPONENTS
         roscpp
         std_msgs
         cv_bridge
+        dynamixel_workbench_toolbox
 )
 
 find_package(OpenCV REQUIRED)
@@ -36,3 +37,6 @@ target_link_libraries(tag_servo_node ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
 add_executable(auto_catch_ctl src/auto_catch_ctl.cpp)
 target_link_libraries(auto_catch_ctl ${catkin_LIBRARIES} ${OpenCV_LIBS} dw)
+
+add_executable(nbv_ctl src/nbv_ctl.cpp)
+target_link_libraries(nbv_ctl ${catkin_LIBRARIES} ${OpenCV_LIBS} dw)

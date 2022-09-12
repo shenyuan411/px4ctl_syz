@@ -56,7 +56,7 @@ ros::Publisher     target_pose_pub, tag_pose_pub;
 ros::ServiceClient arming_client;
 ros::ServiceClient set_mode_client;
 
-Eigen::Affine3f T_W_B0, T_W_Bt;
+Eigen::Affine3f T_V_B0, T_M_Bt;
 
 cv::Mat         intrinsic;
 cv::Mat         distort;
@@ -78,8 +78,8 @@ void odom_callback(const geometry_msgs::PoseStampedConstPtr &odom_msg)
     Eigen::Quaternionf q(odom_msg->pose.orientation.w, odom_msg->pose.orientation.x,
                          odom_msg->pose.orientation.y, odom_msg->pose.orientation.z);
 
-    T_W_Bt.matrix().block<3, 3>(0, 0) = q.toRotationMatrix();
-    T_W_Bt.matrix().block<3, 1>(0, 3) = p;
+    T_M_Bt.matrix().block<3, 3>(0, 0) = q.toRotationMatrix();
+    T_M_Bt.matrix().block<3, 1>(0, 3) = p;
 }
 
 void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
@@ -98,7 +98,7 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
 
     if (tag_len > 2)
     {
-        T_W_TAG = T_W_Bt * T_B_C * T_Ck_TAG;
+        T_W_TAG = T_M_Bt * T_B_C * T_Ck_TAG;
 
         geometry_msgs::PoseStamped pose;
         pose.header.stamp    = ros::Time::now();
@@ -122,7 +122,7 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
     }
     else if (fb_state == TAG)
     {
-        Eigen::Vector3f p_B0_DES   = (T_W_B0.inverse() * T_W_DES).translation();
+        Eigen::Vector3f p_B0_DES   = (T_V_B0.inverse() * T_W_DES).translation();
         T_B0_DES.translation().x() = p_B0_DES.x();
         T_B0_DES.translation().y() = p_B0_DES.y();
         fb_state                   = VIO;
@@ -171,13 +171,13 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
         {
             if (rc_ch[0] == 0.0 && rc_ch[1] == 0.0 && rc_ch[2] == 0.0 && rc_ch[3] == 0.0)
             {
-                T_W_B0                   = T_W_Bt;
+                T_V_B0                   = T_M_Bt;
                 mode                     = POSITION;
                 last_set_hover_pose_time = ros::Time::now().toSec();
                 T_B0_DES                 = Eigen::Affine3f::Identity();
                 T_B0_DES.translation()   = Eigen::Vector3f(0.0, 0.0, TAKEOFF_ALTITUDE);
                 T_W_TAG                  = Eigen::Affine3f::Identity();
-                T_W_DES_prev             = T_W_B0 * T_B0_DES;
+                T_W_DES_prev             = T_V_B0 * T_B0_DES;
                 ROS_INFO("Switch to POSITION succeed!");
             }
             else
@@ -188,7 +188,7 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
         }
         else if (mode == TAG_SERVO)
         {
-            Eigen::Vector3f p_B0_DES   = (T_W_B0.inverse() * T_W_DES).translation();
+            Eigen::Vector3f p_B0_DES   = (T_V_B0.inverse() * T_W_DES).translation();
             T_B0_DES.translation().x() = p_B0_DES.x();
             T_B0_DES.translation().y() = p_B0_DES.y();
             mode                       = POSITION;
@@ -375,7 +375,7 @@ int main(int argc, char *argv[])
     {
         if (mode != INIT)
         {
-            T_W_DES = T_W_B0 * T_B0_DES;
+            T_W_DES = T_V_B0 * T_B0_DES;
             if (mode == POSITION)
             {
                 if (fb_state == TAG)
