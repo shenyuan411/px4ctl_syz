@@ -10,12 +10,6 @@
 #include "mavros_msgs/State.h"
 #include "sensor_msgs/Image.h"
 
-#define BACKWARD_HAS_DW 1
-#include "backward.hpp"
-namespace backward
-{
-backward::SignalHandling sh;
-}
 
 using namespace std;
 
@@ -33,7 +27,7 @@ enum MISSION_STATE
 {
     INIT,
     POSITION,  // TAKEOFF
-    NBV,
+    TAG_SERVO,
     LAND
 };
 
@@ -48,7 +42,7 @@ mavros_msgs::State px4_state, px4_state_prev;
 #define RC_REVERSE_PITCH 0
 #define RC_REVERSE_ROLL 0
 #define RC_REVERSE_THROTTLE 0
-#define TAKEOFF_ALTITUDE 0.35  //  动捕：0.35
+#define TAKEOFF_ALTITUDE 0.32  //  动捕：0.35
 #define UAV_HEIGHT 0.3
 Eigen::Vector3f TAKEOFF_POS(0.0, 0.0, TAKEOFF_ALTITUDE);
 Eigen::Vector3f TO_POINT_POS(1.0, 0.0, TAKEOFF_ALTITUDE);
@@ -197,7 +191,7 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
                 return;
             }
         }
-        else if (mission_state == NBV)
+        else if (mission_state == TAG_SERVO)
         {
             Eigen::Vector3f p_B0_DES   = (T_W_B0.inverse() * T_W_DES).translation();
             T_B0_DES.translation().x() = TAKEOFF_POS.x();
@@ -215,7 +209,7 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
             if (rc_ch[0] == 0.0 && rc_ch[1] == 0.0 && rc_ch[2] == 0.0 && rc_ch[3] == 0.0)
             {
                 T_B0_DES.translation() = TO_POINT_POS;
-                mission_state          = NBV;
+                mission_state          = TAG_SERVO;
                 ROS_INFO("Set setpoint to TO_POINT_POS succeed!");
             }
             else
@@ -366,8 +360,8 @@ int main(int argc, char *argv[])
 
     int  tag_size = 15;
     bool ret =
-        // LoadBoard("/home/chrisliu/FASTLAB_ws/src/tag_px4ctl/board.txt", tag_size, tag_coord);
-        LoadBoard("/home/nros/FASTLAB_ws/src/tag_px4ctl/board.txt", tag_size, tag_coord);
+        // LoadBoard("/home/chrisliu/FEIBI_ws/src/px4ctl/board.txt", tag_size, tag_coord);
+        LoadBoard("/home/nros/FEIBI_ws/src/px4ctl/board.txt", tag_size, tag_coord);
 
     intrinsic = (cv::Mat_<float>(3, 3) << 393.07800238, 0, 319.65949468, 0, 393.22628119,
                  240.06435046, 0, 0, 1);
@@ -385,7 +379,7 @@ int main(int argc, char *argv[])
         if (mission_state != INIT)
         {
             T_W_DES = T_W_B0 * T_B0_DES;
-            if (mission_state == NBV)
+            if (mission_state == TAG_SERVO)
             {
                 if (fb_state == TAG)
                 {

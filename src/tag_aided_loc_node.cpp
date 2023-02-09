@@ -29,7 +29,7 @@ FEEDBACK_STATE fb_state;
 
 ros::Publisher odom_pub, pose_pub, tag_pose_pub;
 
-Eigen::Affine3f T_V_B0, T_W_Bt, T_W_Bk;
+Eigen::Affine3f T_W_B0, T_W_Bt, T_W_Bk;
 
 Eigen::Affine3f T_C0_A, T_Ck_A;
 
@@ -77,7 +77,7 @@ void odom_callback(const nav_msgs::OdometryConstPtr &vio_msg)
     }
     else if (fb_state == TAG2VIO)
     {
-        T_W_BAt                       = T_W_BA0 * T_V_B0.inverse() * T_W_Bt;
+        T_W_BAt                       = T_W_BA0 * T_W_B0.inverse() * T_W_Bt;
         nav_msgs::Odometry odom_msg   = *vio_msg;
         odom_msg.pose.pose.position.x = T_W_BAt.translation().x();
         odom_msg.pose.pose.position.y = T_W_BAt.translation().y();
@@ -151,7 +151,7 @@ void                                  img_callback(const sensor_msgs::ImageConst
     }
     else if (fb_state == TAG)
     {
-        T_V_B0     = T_W_Bt;
+        T_W_B0     = T_W_Bt;
         T_W_BA0    = T_W_BAt;
         fb_state = TAG2VIO;
         // std::cout << "T_W_V0.matrix()" << std::endl << T_W_B0.matrix() << std::endl;
@@ -178,8 +178,8 @@ int main(int argc, char *argv[])
 
     int  tag_size = 15;
     bool ret =
-        LoadBoard("/home/chrisliu/FASTLAB_ws/src/tag_aided_loc/board.txt", tag_size, tag_coord);
-    // LoadBoard("/home/nros/FASTLAB_ws/src/tag_aided_loc/board.txt", tag_size, tag_coord);
+        LoadBoard("/home/chrisliu/FEIBI_ws/src/tag_aided_loc/board.txt", tag_size, tag_coord);
+    // LoadBoard("/home/nros/FEIBI_ws/src/tag_aided_loc/board.txt", tag_size, tag_coord);
 
     fb_state = VIO;
     intrinsic  = (cv::Mat_<float>(3, 3) << 393.07800238, 0, 319.65949468, 0, 393.22628119,
