@@ -304,7 +304,7 @@ void rc_callback(const mavros_msgs::RCInConstPtr &rc_msg)
         if (mission_state == POSITION)
         {
             T_W_B_set.position.x +=
-                rc_ch[1] * MAX_MANUAL_VEL * delta_t * (RC_REVERSE_PITCH ? 1 : -1);
+                rc_ch[2] * MAX_MANUAL_VEL * delta_t * (RC_REVERSE_PITCH ? 1 : -1);
             T_W_B_set.position.y +=
                 rc_ch[0] * MAX_MANUAL_VEL * delta_t * (RC_REVERSE_ROLL ? 1 : -1);
         }
