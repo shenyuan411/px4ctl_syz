@@ -1,0 +1,5 @@
+<launch>
+      <node name="px4ctl" pkg="px4ctl" type="origin_ctl" output="screen" >
+          <!-- <remap from="/vrpn_client_node/$(arg rigid_body_name)/pose" to="/mavros/vision_pose/pose" /> -->
+      </node>
+</launch>
